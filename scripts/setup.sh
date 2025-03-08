@@ -1,25 +1,24 @@
 #!/bin/bash
 
-########################################
+############################################
 # scripts/setup.sh
-# Installs all system and Python dependencies needed
-########################################
+# Installs all system and Python dependencies needed for DockcaddV2.
+############################################
 
-# 1) System updates and packages
+# 1) System Updates and Packages
 sudo apt-get update -y
 sudo apt-get install -y pymol openbabel wget tar openjdk-11-jdk
 
-# 2) Python libraries
+# 2) Python Libraries
 echo "Upgrading pip and installing Python libraries..."
 pip install --upgrade pip
 
-# If your project has a requirements.txt that includes e.g. "pandas", "numpy",
-# you can install them here:
+# Install dependencies from requirements.txt if available
 if [ -f "requirements.txt" ]; then
     pip install -r requirements.txt
 fi
 
-# Additional packages not in requirements.txt
+# Additional packages (if not listed in requirements.txt):
 pip install git+https://github.com/openmm/pdbfixer.git
 pip install openmm
 pip install rdkit-pypi
