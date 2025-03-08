@@ -1,3 +1,22 @@
+from IPython.utils import io
+import tqdm.notebook
+import os
+
+total = 100
+with tqdm.notebook.tqdm(total=total) as pbar:
+    with io.capture_output() as captured:
+        !pip install -q condacolab
+        import condacolab
+        condacolab.install()
+        pbar.update(10)
+
+        import sys
+        sys.path.append('/usr/local/lib/python3.7/site-packages/')
+        pbar.update(20)
+
+        # Install PyMOL
+        %shell mamba install -c schrodinger pymol-bundle --yes
+        pbar.update(90)
 # src/cadock.py
 
 import os
@@ -53,12 +72,21 @@ def keep_only_chain_A_with_fallback(input_pdb, output_pdb):
             outf.write(inf.read())
 
 
+def remove_hetatm(input_pdb, output_pdb):
+    """
+    Removes all HETATM lines from input_pdb (e.g., to remove co-ligands).
+    """
+    with open(input_pdb, 'r') as infile, open(output_pdb, 'w') as outfile:
+        for line in infile:
+            if not line.startswith("HETATM"):
+                outfile.write(line)
+
+
 def fix_with_pdbfixer(pdb_in, pdb_out):
     """
     Uses PDBFixer to add missing residues, atoms, and hydrogens (pH 7).
     """
     fixer = PDBFixer(filename=pdb_in)
-    # Do not remove heterogens in order to keep co-ligands in chain A.
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
@@ -97,7 +125,7 @@ def convert_pdb_to_pdbqt_ligand(input_pdb, output_pdbqt):
 
 def run_p2rank_and_get_center(receptor_pdb, pdb_id):
     """
-    Runs p2rank on the receptor PDB and returns the top pocket center (x,y,z).
+    Runs p2rank on the receptor PDB and returns the top pocket center (x, y, z).
     """
     p2rank_exec = os.path.join(os.getcwd(), "p2rank_2.4.2", "prank")
     if not os.path.isfile(p2rank_exec):
@@ -198,12 +226,13 @@ def prepare_ligands(smiles_list=None, sdf_file=None, num_confs=3, out_dir="ligan
 def perform_docking(smiles_list=None, sdf_file=None, pdb_id="5ZMA", num_confs=3, docking_folder="docking_results"):
     """
     Main docking workflow:
-      1) Prepare receptor: download PDB, extract chain A (with fallback), fix with PDBFixer.
+      1) Prepare receptor: download PDB, extract chain A (fallback if needed),
+         remove HETATM lines (to remove co-ligand), and fix with PDBFixer.
       2) Run p2rank to get pocket center (for a 20x20x20 box).
       3) Convert receptor to PDBQT.
-      4) Prepare ligands from SMILES and/or SDF (generate multiple conformers).
-      5) For each ligand conformer: convert to PDBQT, dock with AutoDock Vina,
-         convert best pose to PDB, and merge with receptor to form final complex.
+      4) Prepare ligands from SMILES and/or SDF (multiple conformers).
+      5) For each ligand conformer, convert to PDBQT, dock with AutoDock Vina,
+         convert the best pose to PDB, and merge with receptor to form the final complex.
       6) Write docking scores to a CSV file.
     """
     if not (smiles_list or (sdf_file and os.path.isfile(sdf_file))):
@@ -220,8 +249,13 @@ def perform_docking(smiles_list=None, sdf_file=None, pdb_id="5ZMA", num_confs=3,
     os.rename(raw_file, raw_pdb)
     chainA_file = os.path.join(docking_folder, f"{pdb_id}_chainA_tmp.pdb")
     keep_only_chain_A_with_fallback(raw_pdb, chainA_file)
+    
+    # Remove HETATM lines (to remove co-ligand)
+    receptor_no_het = os.path.join(docking_folder, f"{pdb_id}_chainA_nohet.pdb")
+    remove_hetatm(chainA_file, receptor_no_het)
+    
     receptor_pdb = os.path.join(docking_folder, f"{pdb_id}_prepared.pdb")
-    fix_with_pdbfixer(chainA_file, receptor_pdb)
+    fix_with_pdbfixer(receptor_no_het, receptor_pdb)
 
     # p2rank pocket prediction
     cx, cy, cz = run_p2rank_and_get_center(receptor_pdb, pdb_id)
@@ -313,10 +347,12 @@ def show_in_pymol(pdb_file):
     """
     Launches PyMOL in Colab to generate a static PNG snapshot of the provided PDB file.
     """
-    print("Launching PyMOL for a static PNG snapshot...")
+    try:
+        from pymol import cmd
+    except ModuleNotFoundError:
+        print("Error: PyMOL module not found. Please install PyMOL in Colab using the provided instructions.")
+        return
     from IPython.display import Image, display
-    from pymol import cmd
-    # Reinitialize PyMOL
     cmd.reinitialize()
     cmd.delete("all")
     cmd.load(pdb_file, "complex")
