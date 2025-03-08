@@ -1,22 +1,3 @@
-from IPython.utils import io
-import tqdm.notebook
-import os
-
-total = 100
-with tqdm.notebook.tqdm(total=total) as pbar:
-    with io.capture_output() as captured:
-        !pip install -q condacolab
-        import condacolab
-        condacolab.install()
-        pbar.update(10)
-
-        import sys
-        sys.path.append('/usr/local/lib/python3.7/site-packages/')
-        pbar.update(20)
-
-        # Install PyMOL
-        %shell mamba install -c schrodinger pymol-bundle --yes
-        pbar.update(90)
 # src/cadock.py
 
 import os
@@ -50,7 +31,7 @@ def run_command_with_live_output(command, log_file):
 def keep_only_chain_A_with_fallback(input_pdb, output_pdb):
     """
     Extracts lines for chain A from input_pdb.
-    Writes ATOM/HETATM (and TER only if chain A) lines.
+    Writes only ATOM/HETATM lines (and TER if chain A) to output_pdb.
     If no chain A lines are found, copies the full file.
     """
     chain_a_count = 0
@@ -74,7 +55,8 @@ def keep_only_chain_A_with_fallback(input_pdb, output_pdb):
 
 def remove_hetatm(input_pdb, output_pdb):
     """
-    Removes all HETATM lines from input_pdb (e.g., to remove co-ligands).
+    Removes all HETATM lines from input_pdb.
+    This effectively removes any co-ligand present in the receptor.
     """
     with open(input_pdb, 'r') as infile, open(output_pdb, 'w') as outfile:
         for line in infile:
@@ -125,7 +107,7 @@ def convert_pdb_to_pdbqt_ligand(input_pdb, output_pdbqt):
 
 def run_p2rank_and_get_center(receptor_pdb, pdb_id):
     """
-    Runs p2rank on the receptor PDB and returns the top pocket center (x, y, z).
+    Runs p2rank on the receptor PDB and returns the top pocket center (x,y,z).
     """
     p2rank_exec = os.path.join(os.getcwd(), "p2rank_2.4.2", "prank")
     if not os.path.isfile(p2rank_exec):
@@ -226,13 +208,12 @@ def prepare_ligands(smiles_list=None, sdf_file=None, num_confs=3, out_dir="ligan
 def perform_docking(smiles_list=None, sdf_file=None, pdb_id="5ZMA", num_confs=3, docking_folder="docking_results"):
     """
     Main docking workflow:
-      1) Prepare receptor: download PDB, extract chain A (fallback if needed),
-         remove HETATM lines (to remove co-ligand), and fix with PDBFixer.
+      1) Prepare receptor: download PDB, extract chain A (fallback if needed), remove HETATM (co-ligand), and fix with PDBFixer.
       2) Run p2rank to get pocket center (for a 20x20x20 box).
       3) Convert receptor to PDBQT.
-      4) Prepare ligands from SMILES and/or SDF (multiple conformers).
+      4) Prepare ligands from SMILES and/or SDF (generate multiple conformers).
       5) For each ligand conformer, convert to PDBQT, dock with AutoDock Vina,
-         convert the best pose to PDB, and merge with receptor to form the final complex.
+         convert best pose to PDB, and merge with receptor to form the final complex.
       6) Write docking scores to a CSV file.
     """
     if not (smiles_list or (sdf_file and os.path.isfile(sdf_file))):
@@ -250,7 +231,7 @@ def perform_docking(smiles_list=None, sdf_file=None, pdb_id="5ZMA", num_confs=3,
     chainA_file = os.path.join(docking_folder, f"{pdb_id}_chainA_tmp.pdb")
     keep_only_chain_A_with_fallback(raw_pdb, chainA_file)
     
-    # Remove HETATM lines (to remove co-ligand)
+    # Remove HETATM lines to eliminate co-ligands from the receptor
     receptor_no_het = os.path.join(docking_folder, f"{pdb_id}_chainA_nohet.pdb")
     remove_hetatm(chainA_file, receptor_no_het)
     
@@ -266,7 +247,7 @@ def perform_docking(smiles_list=None, sdf_file=None, pdb_id="5ZMA", num_confs=3,
     receptor_pdbqt = os.path.join(docking_folder, f"{pdb_id}_prepared.pdbqt")
     convert_pdb_to_pdbqt_receptor(receptor_pdb, receptor_pdbqt)
 
-    # Prepare ligands from SMILES and/or SDF
+    # Ligand preparation (from SMILES and/or SDF)
     lig_out_dir = os.path.join(docking_folder, "ligands")
     ligand_list = prepare_ligands(smiles_list=smiles_list, sdf_file=sdf_file, num_confs=num_confs, out_dir=lig_out_dir)
     if not ligand_list:
@@ -339,28 +320,3 @@ def perform_docking(smiles_list=None, sdf_file=None, pdb_id="5ZMA", num_confs=3,
     print(f"\n[DONE] Docking complete. Results saved in {results_csv}")
 
 
-########################################
-# PyMOL Visualization Function
-########################################
-
-def show_in_pymol(pdb_file):
-    """
-    Launches PyMOL in Colab to generate a static PNG snapshot of the provided PDB file.
-    """
-    try:
-        from pymol import cmd
-    except ModuleNotFoundError:
-        print("Error: PyMOL module not found. Please install PyMOL in Colab using the provided instructions.")
-        return
-    from IPython.display import Image, display
-    cmd.reinitialize()
-    cmd.delete("all")
-    cmd.load(pdb_file, "complex")
-    cmd.hide("everything", "all")
-    cmd.show("cartoon", "complex")
-    # Adjust ligand residue names as needed
-    cmd.show("sticks", "resn UNL+LIG+MOL")
-    cmd.zoom("all")
-    out_png = "pymol_snapshot.png"
-    cmd.png(out_png, width=1200, height=900, ray=1)
-    display(Image(out_png))
