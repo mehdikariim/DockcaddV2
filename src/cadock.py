@@ -262,7 +262,7 @@ def perform_docking(smiles_list=None, sdf_file=None, pdb_id="5ZMA", num_confs=3,
             "--size_x", str(box_size),
             "--size_y", str(box_size),
             "--size_z", str(box_size),
-            "--num_modes", "1"
+            "--num_modes", "10"
         ]
         ret_code = run_command_with_live_output(vina_cmd, log_file)
         best_score = "N/A"
