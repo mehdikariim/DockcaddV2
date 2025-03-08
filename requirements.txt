@@ -1,0 +1,8 @@
+# DockcaddV2 Python dependencies
+numpy
+pandas
+biopython
+tqdm
+pubchempy
+matplotlib
+scipy
